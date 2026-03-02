@@ -12,21 +12,9 @@
  */
 import { decode } from "he";
 
-// https:\/\/liveblog[.]zdf[.]de\/api\/channels\/[a-zA-Z\d]+\/blogitems\/
-const liveBlogs = [
-	{
-		name: "Israel und USA greifen Iran an: Alle Nachrichten im Liveblog",
-		id: "dyHbPYWpjcfs3nkA2K5TQm",
-		blog: "https://liveblog.zdf.de/api/channels/dyHbPYWpjcfs3nkA2K5TQm/blogitems/",
-		url: "https://www.zdfheute.de/politik/ausland/iran-israel-usa-angriff-liveblog-100.html",
-	},
-	{
-		name: "Aktuelles zum Krieg in der Ukraine",
-		id: "3gAe4KkgHuZ7g9EkU97bcQ",
-		blog: "https://liveblog.zdf.de/api/channels/3gAe4KkgHuZ7g9EkU97bcQ/blogitems/",
-		url: "https://www.zdfheute.de/politik/ausland/ukraine-russland-konflikt-blog-102.html",
-	},
-];
+const LIVEBLOG_RE = />Liveblog<\/div.*?href="([^"]*)"/g;
+const LD_JSON_RE = /ld[+]json">({.*?})<\/script>/g;
+const BLOG_API_RE = /https:\/\/liveblog[.]zdf[.]de\/api\/channels\/[a-zA-Z\d]+\/blogitems\//;
 
 const username = "ZDF Liveblog";
 const avatarUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/ZDF_logo.svg/960px-ZDF_logo.svg.png";
@@ -34,36 +22,54 @@ const avatarUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/ZDF
 export default {
 	async scheduled(schedule, env, ctx) {
 		env.zdf_liveblog.batch([
-			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_blogs (id TEXT PRIMARY KEY, thread_id TEXT)"),
-			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_updates (blog_id TEXT, guid TEXT, PRIMARY KEY(blog_id, guid))"),
+			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_blogs (url TEXT PRIMARY KEY, blog_url TEXT NOT NULL, thread_id TEXT)"),
+			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_updates (guid TEXT PRIMARY KEY)"),
 		]);
 
-		for (const liveBlog of liveBlogs) {
-			const response = await fetch(liveBlog.blog + "?limit=10");
-			const data = await response.json<Data>();
-			console.log("data", data);
+		const res = await fetch("https://www.zdfheute.de/politik/ausland");
+		const html = await res.text();
+		const liveBlogUrls = Array.from(html.matchAll(LIVEBLOG_RE)).map((x) => new URL(x[1], "https://www.zdfheute.de").toString());
 
-			// Check if the blog is already in the database, if not, insert it and create a new thread
-			// If it is, get the thread ID for the blog
-			let threadId = await env.zdf_liveblog
-				.prepare(`SELECT thread_id FROM live_blogs WHERE id = ?`)
-				.bind(liveBlog.id)
-				.first<string>("thread_id");
-			if (!threadId) {
+		for (const liveBlogUrl of liveBlogUrls) {
+			console.log("fetching", liveBlogUrl);
+			let data = await env.zdf_liveblog.prepare("SELECT * FROM live_blogs WHERE url = ?").bind(liveBlogUrl).first<{
+				blog_url: string;
+				thread_id: string;
+			}>();
+
+			let blogUrl: string | undefined, threadId: string | undefined;
+			if (data) {
+				blogUrl = data.blog_url;
+				threadId = data.thread_id;
+			}
+
+			if (!blogUrl || !threadId) {
+				const res = await fetch(liveBlogUrl);
+				const html = await res.text();
+
+				const ldAll = Array.from(html.matchAll(LD_JSON_RE)).map((x) => JSON.parse(x[1]));
+
+				console.log(ldAll);
+				const ld = ldAll.find((x) => x["@type"] === "LiveBlogPosting");
+
+				const title: string = ld["headline"];
+				const description: string = ld["description"];
+				blogUrl = html.match(BLOG_API_RE)![0];
+
 				// Need to create a new thread for this blog
 				const thread = await fetch(env.DISCORD_WEBHOOK_URL + "?wait=true&with_components=true", {
 					body: JSON.stringify({
 						username,
 						avatar_url: avatarUrl,
-						thread_name: liveBlog.name,
+						thread_name: title,
 						components: [
 							{
 								type: 10,
-								content: `# ${liveBlog.name}`,
+								content: `# ${title}`,
 							},
 							{
 								type: 10,
-								content: `Hier werden die neuesten Updates zum Liveblog gepostet`,
+								content: description,
 							},
 							{
 								type: 1,
@@ -72,7 +78,7 @@ export default {
 										type: 2,
 										style: 5,
 										label: "Zum Liveblog auf ZDF",
-										url: liveBlog.url,
+										url: liveBlogUrl,
 									},
 								],
 							},
@@ -88,18 +94,25 @@ export default {
 				console.log("created thread", message);
 				threadId = message.channel_id;
 
-				await env.zdf_liveblog.prepare(`INSERT INTO live_blogs (id, thread_id) VALUES (?, ?)`).bind(liveBlog.id, threadId).run();
+				await env.zdf_liveblog
+					.prepare(`INSERT INTO live_blogs (url, blog_url, thread_id) VALUES (?, ?, ?)`)
+					.bind(liveBlogUrl, blogUrl, threadId)
+					.run();
 			}
 
-			const receivedGuids = data.results.map((update) => update.guid);
+			const response = await fetch(blogUrl + "?limit=10");
+			const blogData = await response.json<Data>();
+			console.log("data", data);
+
+			const receivedGuids = blogData.results.map((update) => update.guid);
 			const existingGuids = await env.zdf_liveblog
-				.prepare(`SELECT guid FROM live_updates WHERE blog_id = ? AND guid IN (${receivedGuids.map(() => "?").join(",")})`)
-				.bind(liveBlog.id, ...receivedGuids)
+				.prepare(`SELECT guid FROM live_updates WHERE guid IN (${receivedGuids.map(() => "?").join(",")})`)
+				.bind(...receivedGuids)
 				.all<{
 					guid: string;
 				}>();
 
-			for (const update of data.results.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())) {
+			for (const update of blogData.results.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())) {
 				if (existingGuids.results.some((g) => g.guid === update.guid)) {
 					continue;
 				}
@@ -158,7 +171,7 @@ export default {
 				}
 
 				// Insert the update into the database
-				await env.zdf_liveblog.prepare(`INSERT INTO live_updates (blog_id, guid) VALUES (?, ?)`).bind(liveBlog.id, update.guid).run();
+				await env.zdf_liveblog.prepare(`INSERT INTO live_updates (guid) VALUES (?)`).bind(update.guid).run();
 			}
 		}
 	},

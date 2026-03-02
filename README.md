@@ -12,7 +12,7 @@ This worker periodically fetches updates from ZDF liveblogs and forwards them to
 - **Discord integration**: Posts updates to Discord threads with rich formatting
 - **Duplicate prevention**: Tracks posted updates in Cloudflare D1 database
 - **Rich message formatting**: Includes title, timestamp, content, images, and links
-- **Multi-liveblog support**: Can monitor multiple ZDF liveblogs simultaneously
+- **Liveblog auto-discovery**: Liveblogs are automatically discovered
 
 ## Prerequisites
 
@@ -45,9 +45,10 @@ This worker periodically fetches updates from ZDF liveblogs and forwards them to
 
 ### Set up Discord Webhook
 
-1. In Discord, go to Server Settings → Integrations → Webhooks
-2. Create a new webhook and copy its URL
-3. Store the webhook URL as a secret (see next section)
+1. In Discord, create a Forum channel (MUST be a Forum channel!)
+2. Right click the channel > Edit Channel > Integrations > Webhooks
+3. Create a new webhook and copy its URL
+4. Store the webhook URL as a secret (see next section)
 
 ### Set up Cloudflare Secrets
 
@@ -59,21 +60,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 
 When prompted, paste your Discord webhook URL.
 
-### Configure Liveblogs
-
-Edit `src/index.ts` and update the `liveBlogs` array with the ZDF liveblogs you want to monitor:
-
-```typescript
-const liveBlogs = [
-	{
-		name: "Liveblog Title",
-		id: "unique-channel-id",
-		blog: "https://liveblog.zdf.de/api/channels/unique-channel-id/blogitems/",
-		url: "https://zdfheute.de/link-to-liveblog",
-	},
-	// Add more liveblogs as needed
-];
-```
+Create a `.env` file for local testing.
 
 ## Deployment
 
@@ -96,57 +83,3 @@ npm run deploy
 ```
 
 This publishes the worker to your Cloudflare account. The scheduled trigger (cron) will automatically run every minute.
-
-## Project Structure
-
-```
-├── src/
-│   └── index.ts          # Main worker code
-├── test/                 # Test files
-├── wrangler.jsonc        # Cloudflare Worker configuration
-├── package.json          # Project dependencies and scripts
-├── tsconfig.json         # TypeScript configuration
-└── README.md             # This file
-```
-
-## Database Schema
-
-The worker creates and uses two tables in Cloudflare D1:
-
-### `live_blogs`
-
-- `id` (TEXT PRIMARY KEY): Liveblog channel ID
-- `thread_id` (TEXT): Discord thread ID where updates are posted
-
-### `live_updates`
-
-- `blog_id` (TEXT): Liveblog channel ID
-- `guid` (TEXT): Unique identifier for each update
-- PRIMARY KEY: `(blog_id, guid)`
-
-These tables are created automatically on the first run.
-
-## Scripts
-
-- `npm run dev` - Start development server
-- `npm run deploy` - Deploy to Cloudflare Workers
-- `npm run test` - Run tests
-- `npm run cf-typegen` - Regenerate Cloudflare type definitions
-
-## Development
-
-### Running Tests
-
-```bash
-npm test
-```
-
-### Adding New Liveblogs
-
-1. Find the liveblog ID from the ZDF liveblog URL structure
-2. Add a new entry to the `liveBlogs` array in `src/index.ts`
-3. Redeploy the worker
-
-## License
-
-See LICENSE file for details.
