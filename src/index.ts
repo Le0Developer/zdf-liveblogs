@@ -28,6 +28,9 @@ const liveBlogs = [
 	},
 ];
 
+const username = "ZDF Liveblog";
+const avatarUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/ZDF_logo.svg/960px-ZDF_logo.svg.png";
+
 export default {
 	async scheduled(schedule, env, ctx) {
 		env.zdf_liveblog.batch([
@@ -50,7 +53,8 @@ export default {
 				// Need to create a new thread for this blog
 				const thread = await fetch(env.DISCORD_WEBHOOK_URL + "?wait=true&with_components=true", {
 					body: JSON.stringify({
-						username: "ZDF Liveblog",
+						username,
+						avatar_url: avatarUrl,
 						thread_name: liveBlog.name,
 						components: [
 							{
@@ -104,6 +108,8 @@ export default {
 
 				// Post the update to the thread
 				const body = {
+					username,
+					avatar_url: avatarUrl,
 					flags: 1 << 15, // components v2
 					components: [
 						{
@@ -139,7 +145,6 @@ export default {
 							: []),
 					],
 				};
-				console.log(JSON.stringify(body));
 				const res = await fetch(env.DISCORD_WEBHOOK_URL + `?thread_id=${threadId}&wait=true&with_components=true`, {
 					method: "POST",
 					body: JSON.stringify(body),
