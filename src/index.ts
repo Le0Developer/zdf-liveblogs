@@ -131,9 +131,14 @@ export default {
 						},
 						{
 							type: 10,
-							content:
-								`-# <t:${Math.floor(new Date(update.start).getTime() / 1000)}:R>` +
-								(update.is_top_blogitem ? ` - **Wichtige Meldung**` : ""),
+							content: [
+								`-# <t:${Math.floor(new Date(update.start).getTime() / 1000)}:R>`,
+								update.is_top_blogitem && "**`[Wichtige Meldung]`**",
+								update.video_metadata && "`[Video]`",
+								update.url && "`[Artikel]`",
+							]
+								.filter(Boolean)
+								.join(" "),
 						},
 						{
 							type: 10,
@@ -151,6 +156,21 @@ export default {
 														[update.image_alt_text || update.image_description, update.image_source].filter(Boolean).join(" - ") ||
 														undefined,
 												},
+											},
+										],
+									},
+								]
+							: []),
+						...(update.url
+							? [
+									{
+										type: 1,
+										components: [
+											{
+												type: 2,
+												style: 5,
+												label: "Kompletter Beitrag",
+												url: update.url,
 											},
 										],
 									},
@@ -191,6 +211,8 @@ interface LiveUpdate {
 	image?: {
 		url: string;
 	};
+	video_metadata?: {};
+	url?: string;
 	// these are only available for real images, "image" is reused for a video thumbnail
 	image_description?: string;
 	image_alt_text?: string;
