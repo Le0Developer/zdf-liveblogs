@@ -142,7 +142,7 @@ export default {
 						},
 						{
 							type: 10,
-							content: decode(update.text).replaceAll("<p>", "").replaceAll("</p>", "\n").trim().slice(0, 2000),
+							content: decode(update.text).replaceAll("<p>", "").replaceAll("</p>", "\n").replaceAll("<br>", "\n").trim().slice(0, 2000),
 						},
 						...(update.image
 							? [
