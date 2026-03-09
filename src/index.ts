@@ -142,7 +142,13 @@ export default {
 						},
 						{
 							type: 10,
-							content: decode(update.text).replaceAll("<p>", "").replaceAll("</p>", "\n").replaceAll("<br>", "\n").trim().slice(0, 2000),
+							content: decode(update.text)
+								.replaceAll("<p>", "")
+								.replaceAll("</p>", "\n")
+								.replaceAll("<br>", "\n")
+								.replace(/<a href="([^"]+)"(?: target="_blank")?(?: rel="noopener")?>([^<]+)<\/a>/g, "[$2]($1)")
+								.trim()
+								.slice(0, 2000),
 						},
 						...(update.image
 							? [
