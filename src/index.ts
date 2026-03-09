@@ -146,6 +146,10 @@ export default {
 								.replaceAll("<p>", "")
 								.replaceAll("</p>", "\n")
 								.replaceAll("<br>", "\n")
+								.replace(/<em>([^<]+)<\/em>/g, "_$1_")
+								.replace(/<\/?[ul]>/g, "")
+								.replaceAll("<li>", "* ")
+								.replaceAll("</li>", "")
 								.replace(/<a href="([^"]+)"(?: target="_blank")?(?: rel="noopener")?>([^<]+)<\/a>/g, "[$2]($1)")
 								.trim()
 								.slice(0, 2000),
