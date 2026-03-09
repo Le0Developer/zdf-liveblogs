@@ -28,23 +28,27 @@ export default {
 
 		const res = await fetch("https://www.zdfheute.de/politik/ausland");
 		const html = await res.text();
-		const liveBlogUrls = Array.from(html.matchAll(LIVEBLOG_RE)).map((x) => new URL(x[1], "https://www.zdfheute.de").toString());
+		const discoveredLiveBlogUrls = Array.from(html.matchAll(LIVEBLOG_RE)).map((x) => new URL(x[1], "https://www.zdfheute.de").toString());
+		const liveBlogs = await env.zdf_liveblog.prepare("SELECT * FROM live_blogs").all<{
+			url: string;
+			blog_url: string;
+			thread_id: string;
+		}>();
+		for (const discovered of discoveredLiveBlogUrls) {
+			if (liveBlogs.results.some((x) => x.url === discovered)) continue;
 
-		for (const liveBlogUrl of liveBlogUrls) {
-			console.log("fetching", liveBlogUrl);
-			let data = await env.zdf_liveblog.prepare("SELECT * FROM live_blogs WHERE url = ?").bind(liveBlogUrl).first<{
-				blog_url: string;
-				thread_id: string;
-			}>();
+			liveBlogs.results.push({
+				url: discovered,
+				blog_url: "",
+				thread_id: "",
+			});
+		}
 
-			let blogUrl: string | undefined, threadId: string | undefined;
-			if (data) {
-				blogUrl = data.blog_url;
-				threadId = data.thread_id;
-			}
+		for (const data of liveBlogs.results) {
+			console.log("live blog", data);
 
-			if (!blogUrl || !threadId) {
-				const res = await fetch(liveBlogUrl);
+			if (!data.blog_url || !data.thread_id) {
+				const res = await fetch(data.url);
 				const html = await res.text();
 
 				const ldAll = Array.from(html.matchAll(LD_JSON_RE)).map((x) => JSON.parse(x[1]));
@@ -54,7 +58,7 @@ export default {
 
 				const title: string = ld["headline"];
 				const description: string = ld["description"];
-				blogUrl = html.match(BLOG_API_RE)![0];
+				data.blog_url = html.match(BLOG_API_RE)![0];
 
 				// Need to create a new thread for this blog
 				const thread = await fetch(env.DISCORD_WEBHOOK_URL + "?wait=true&with_components=true", {
@@ -78,7 +82,7 @@ export default {
 										type: 2,
 										style: 5,
 										label: "Zum Liveblog auf ZDF",
-										url: liveBlogUrl,
+										url: data.url,
 									},
 								],
 							},
@@ -92,15 +96,15 @@ export default {
 				});
 				const message = await thread.json<any>();
 				console.log("created thread", message);
-				threadId = message.channel_id;
+				data.thread_id = message.channel_id;
 
 				await env.zdf_liveblog
 					.prepare(`INSERT INTO live_blogs (url, blog_url, thread_id) VALUES (?, ?, ?)`)
-					.bind(liveBlogUrl, blogUrl, threadId)
+					.bind(data.url, data.blog_url, data.thread_id)
 					.run();
 			}
 
-			const response = await fetch(blogUrl + "?limit=10");
+			const response = await fetch(data.blog_url + "?limit=10");
 			const blogData = await response.json<Data>();
 			console.log("data", data);
 
@@ -201,7 +205,7 @@ export default {
 							: []),
 					],
 				};
-				const res = await fetch(env.DISCORD_WEBHOOK_URL + `?thread_id=${threadId}&wait=true&with_components=true`, {
+				const res = await fetch(env.DISCORD_WEBHOOK_URL + `?thread_id=${data.thread_id}&wait=true&with_components=true`, {
 					method: "POST",
 					body: JSON.stringify(body),
 					headers: {
