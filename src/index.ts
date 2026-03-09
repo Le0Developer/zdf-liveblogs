@@ -167,6 +167,19 @@ export default {
 									},
 								]
 							: []),
+						...(update.slides
+							? [
+									{
+										type: 12,
+										items: update.slides.map((slide) => ({
+											media: {
+												url: slide.image.url,
+												description: [slide.alt_text || slide.description, slide.source].filter(Boolean).join(" - ") || undefined,
+											},
+										})),
+									},
+								]
+							: []),
 						...(update.url
 							? [
 									{
@@ -218,6 +231,14 @@ interface LiveUpdate {
 		url: string;
 	};
 	video_metadata?: {};
+	slides?: Array<{
+		description: string;
+		alt_text: string;
+		source: string;
+		image: {
+			url: string;
+		};
+	}>;
 	url?: string;
 	// these are only available for real images, "image" is reused for a video thumbnail
 	image_description?: string;
