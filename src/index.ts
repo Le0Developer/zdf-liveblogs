@@ -22,7 +22,9 @@ const avatarUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/ZDF
 export default {
 	async scheduled(schedule, env, ctx) {
 		env.zdf_liveblog.batch([
-			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_blogs (url TEXT PRIMARY KEY, blog_url TEXT NOT NULL, thread_id TEXT)"),
+			env.zdf_liveblog.prepare(
+				"CREATE TABLE IF NOT EXISTS live_blogs (url TEXT PRIMARY KEY, blog_url TEXT NOT NULL, thread_id TEXT, is_archived bool not null default false)",
+			),
 			env.zdf_liveblog.prepare("CREATE TABLE IF NOT EXISTS live_updates (guid TEXT PRIMARY KEY)"),
 		]);
 
@@ -33,6 +35,7 @@ export default {
 			url: string;
 			blog_url: string;
 			thread_id: string;
+			is_archived: boolean;
 		}>();
 		for (const discovered of discoveredLiveBlogUrls) {
 			if (liveBlogs.results.some((x) => x.url === discovered)) continue;
@@ -41,11 +44,13 @@ export default {
 				url: discovered,
 				blog_url: "",
 				thread_id: "",
+				is_archived: false,
 			});
 		}
 
 		for (const data of liveBlogs.results) {
 			console.log("live blog", data);
+			if (data.is_archived) continue;
 
 			if (!data.blog_url || !data.thread_id) {
 				const res = await fetch(data.url);
@@ -107,6 +112,13 @@ export default {
 			const response = await fetch(data.blog_url + "?limit=10");
 			const blogData = await response.json<Data>();
 			console.log("data", data);
+
+			// Check if liveblog is stale (latest update >7 days ago)
+			if (isStale(blogData)) {
+				console.log(`Removing stale liveblog: ${data.url}`);
+				await env.zdf_liveblog.prepare(`UPDATE live_blogs SET is_archived = true WHERE url = ?`).bind(data.url).run();
+				continue;
+			}
 
 			const receivedGuids = blogData.results.map((update) => update.guid);
 			const existingGuids = await env.zdf_liveblog
@@ -223,6 +235,13 @@ export default {
 		}
 	},
 } satisfies ExportedHandler<Env>;
+
+function isStale(data: Data) {
+	if (data.results.length === 0) return false;
+	const latestUpdate = new Date(data.results.map((x) => new Date(x.start).getTime()).reduce((a, b) => Math.max(a, b))).getTime();
+	const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+	return latestUpdate > sevenDaysAgo;
+}
 
 interface Data {
 	results: Array<LiveUpdate>;
