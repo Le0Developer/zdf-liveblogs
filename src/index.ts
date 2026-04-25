@@ -240,7 +240,7 @@ function isStale(data: Data) {
 	if (data.results.length === 0) return false;
 	const latestUpdate = new Date(data.results.map((x) => new Date(x.start).getTime()).reduce((a, b) => Math.max(a, b))).getTime();
 	const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-	return latestUpdate > sevenDaysAgo;
+	return latestUpdate < sevenDaysAgo;
 }
 
 interface Data {
