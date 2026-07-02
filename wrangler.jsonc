@@ -26,6 +26,9 @@
 			"database_id": "79d49bb3-4d80-48e5-a4a1-5dc879f91a4e"
 		}
 	],
+	"ai": {
+		"binding": "AI"
+	},
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

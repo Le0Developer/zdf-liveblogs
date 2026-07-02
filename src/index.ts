@@ -15,6 +15,7 @@ import { decode } from "he";
 const LIVEBLOG_RE = />Liveblog<\/div.*?href="([^"]*)"/g;
 const LD_JSON_RE = /ld[+]json">({.*?})<\/script>/g;
 const BLOG_API_RE = /https:\/\/liveblog[.]zdf[.]de\/api\/channels\/[a-zA-Z\d]+\/blogitems\//;
+const TRANSLATION_MODEL = "@cf/meta/m2m100-1.2b";
 
 const username = "ZDF Liveblog";
 const avatarUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/ZDF_logo.svg/960px-ZDF_logo.svg.png";
@@ -63,6 +64,8 @@ export default {
 
 				const title: string = ld["headline"];
 				const description: string = ld["description"];
+				const translatedTitle = await translateGermanToEnglish(env, title, "liveblog title");
+				const translatedDescription = await translateGermanToEnglish(env, description, "liveblog description");
 				data.blog_url = html.match(BLOG_API_RE)![0];
 
 				// Need to create a new thread for this blog
@@ -70,15 +73,15 @@ export default {
 					body: JSON.stringify({
 						username,
 						avatar_url: avatarUrl,
-						thread_name: title,
+						thread_name: truncate(translatedTitle, 100),
 						components: [
 							{
 								type: 10,
-								content: `# ${title}`,
+								content: `# ${translatedTitle}`,
 							},
 							{
 								type: 10,
-								content: description,
+								content: truncate(translatedDescription, 4000),
 							},
 							{
 								type: 1,
@@ -86,7 +89,7 @@ export default {
 									{
 										type: 2,
 										style: 5,
-										label: "Zum Liveblog auf ZDF",
+										label: "Open liveblog on ZDF",
 										url: data.url,
 									},
 								],
@@ -135,6 +138,12 @@ export default {
 
 				console.log(`New update: ${update.title} (${update.guid})`);
 
+				const updateUrl = new URL(update.sharing_url, "https://liveblog.zdf.de").toString();
+				const [translatedTitle, translatedText] = await Promise.all([
+					translateGermanToEnglish(env, update.title, "update title"),
+					translateGermanToEnglish(env, formatUpdateText(update.text), "update text"),
+				]);
+
 				// Post the update to the thread
 				const body = {
 					username,
@@ -143,32 +152,22 @@ export default {
 					components: [
 						{
 							type: 10,
-							content: `# [${update.title}](${new URL(update.sharing_url, "https://liveblog.zdf.de").toString()})`,
+							content: `# [${translatedTitle}](${updateUrl})`,
 						},
 						{
 							type: 10,
 							content: [
 								`-# <t:${Math.floor(new Date(update.start).getTime() / 1000)}:R>`,
-								update.is_top_blogitem && "**`[Wichtige Meldung]`**",
+								update.is_top_blogitem && "**`[Important update]`**",
 								update.video_metadata && "`[Video]`",
-								update.url && "`[Artikel]`",
+								update.url && "`[Article]`",
 							]
 								.filter(Boolean)
 								.join(" "),
 						},
 						{
 							type: 10,
-							content: decode(update.text)
-								.replaceAll("<p>", "")
-								.replaceAll("</p>", "\n")
-								.replaceAll("<br>", "\n")
-								.replace(/<em>([^<]+)<\/em>/g, "_$1_")
-								.replace(/<\/?[uo]l>/g, "")
-								.replaceAll(`<li(?: style="[^"]+")?>`, "* ")
-								.replaceAll("</li>", "")
-								.replace(/<a href="([^"]+)"(?: target="_blank")?(?: rel="noopener")?>([^<]+)<\/a>/g, "[$2]($1)")
-								.trim()
-								.slice(0, 2000),
+							content: truncate(translatedText, 2000),
 						},
 						...(update.image
 							? [
@@ -208,7 +207,7 @@ export default {
 											{
 												type: 2,
 												style: 5,
-												label: "Kompletter Beitrag",
+												label: "Full article",
 												url: update.url,
 											},
 										],
@@ -241,6 +240,45 @@ function isStale(data: Data) {
 	const latestUpdate = new Date(data.results.map((x) => new Date(x.start).getTime()).reduce((a, b) => Math.max(a, b))).getTime();
 	const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 	return latestUpdate < sevenDaysAgo;
+}
+
+function formatUpdateText(text: string) {
+	return decode(text)
+		.replaceAll("<p>", "")
+		.replaceAll("</p>", "\n")
+		.replace(/<br\s*\/?>/g, "\n")
+		.replace(/<em>([^<]+)<\/em>/g, "_$1_")
+		.replace(/<\/?[uo]l>/g, "")
+		.replace(/<li(?: style="[^"]+")?>/g, "* ")
+		.replaceAll("</li>", "")
+		.replace(/<a href="([^"]+)"(?: target="_blank")?(?: rel="noopener")?>([^<]+)<\/a>/g, "[$2]($1)")
+		.trim();
+}
+
+function truncate(text: string, maxLength: number) {
+	if (text.length <= maxLength) return text;
+	return text.slice(0, maxLength - 3).trimEnd() + "...";
+}
+
+async function translateGermanToEnglish(env: Env, text: string, label: string) {
+	const trimmed = text.trim();
+	if (!trimmed) return trimmed;
+
+	try {
+		const response = await env.AI.run(TRANSLATION_MODEL, {
+			text: trimmed,
+			source_lang: "de",
+			target_lang: "en",
+		});
+		if ("translated_text" in response && response.translated_text?.trim()) {
+			return response.translated_text.trim();
+		}
+		console.error(`Workers AI returned no translation for ${label}`, response);
+	} catch (error) {
+		console.error(`Workers AI failed to translate ${label}`, error);
+	}
+
+	return trimmed;
 }
 
 interface Data {
